@@ -32,14 +32,17 @@ spitball.py '<glob_pattern>'
 
 Examples:
 ```bash
-# All Python files recursively
-spitball.py '**/*.py'
+# Save to temp file and open in default text editor
+spitball.py '**/*.py' -fo
 
-# All files in src directory
-spitball.py 'src/**/*'
+# Save to specific file
+spitball.py '**/*.py' -f my_output
 
-# Specific file types
-spitball.py '**/*.{md,txt}'
+# Save and open
+spitball.py '**/*.py' -f my_output -o
+
+# With custom extension (will be changed to .txt)
+spitball.py '**/*.py' -f output.md  # Will save as output.md.txt
 ```
 
 Files included/excluded are logged by default
@@ -49,7 +52,7 @@ $ ./spitball.py './*'
 + ./spitball.py
 - ./ignored-file (gitignore)
 ```
-but that can be turned off with the `-q` option. 
+but that can be turned off with the `-q` option.
 
 ## Output Format
 
@@ -70,5 +73,4 @@ The generated Markdown follows this structure:
 - [ ] Configurable size limits
 - [ ] Prioritize README files
 - [ ] Customizable header prefixes
-- [ ] Configurable output (stdout, /tmp/file, etc)
-
+- [x] Configurable output (stdout, /tmp/file, etc)

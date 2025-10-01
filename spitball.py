@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from asyncio.events import Handle
 import sys
 import os
 import glob
@@ -6,6 +7,7 @@ import subprocess
 from pathlib import Path
 import argparse
 from typing import List, Set
+import tempfile
 
 
 def log_file_status(included_files: List[str], excluded_files: List[tuple]):
@@ -15,38 +17,100 @@ def log_file_status(included_files: List[str], excluded_files: List[tuple]):
     for f, reason in excluded_files:
         print(f"- {f} ({reason})")
 
+
 def load_gitignore_patterns():
     """Load .gitignore patterns from current directory"""
-    gitignore_path = '.gitignore'
+    gitignore_path = ".gitignore"
     if not os.path.exists(gitignore_path):
         return []
 
-    with open(gitignore_path, 'r') as f:
-        patterns = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    with open(gitignore_path, "r") as f:
+        patterns = [
+            line.strip() for line in f if line.strip() and not line.startswith("#")
+        ]
     return patterns
+
 
 def is_git_path(path):
     """Check if path is within .git directory"""
-    return '.git' in Path(path).parts
+    return ".git" in Path(path).parts
 
-def is_binary_or_large(filepath, max_size=100*1024):
+
+def is_binary_or_large(filepath, max_size=100 * 1024):
     """Check if file is binary or exceeds size limit"""
     if os.path.getsize(filepath) > max_size:
         return True
 
     try:
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             chunk = f.read(1024)
-            if b'\x00' in chunk:
+            if b"\x00" in chunk:
                 return True
             # Check for non-text characters
-            text_chars = bytearray({7,8,9,10,12,13,27} | set(range(0x20, 0x100)))
+            text_chars = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x100)))
             return bool(chunk.translate(None, text_chars))
     except Exception:
         return True  # Treat unreadable files as binary
 
 
-def main(pattern, enable_logging=True):
+def open_file_with_default_viewer(filepath):
+    """
+    Opens a file with its default OS viewer in a cross-platform way.
+    """
+    if sys.platform == "win32":
+        os.startfile(filepath)
+    elif sys.platform == "darwin":
+        subprocess.call(["open", filepath])
+    else:
+        subprocess.call(["xdg-open", filepath])
+
+
+def handle_output(md_content, output_file=None, open_file=False, enable_logging=True):
+    # Handle file output
+    if output_file is not None:
+        if output_file == "":
+            # Create temp file
+            with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+                tmp.write(md_content.encode("utf-8"))
+                output_path = tmp.name
+        else:
+            # Use specified file path, ensure .txt extension
+            if not output_file.endswith(".txt"):
+                output_file += ".txt"
+            output_path = output_file
+            # Create directories if needed
+            os.makedirs(
+                os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
+                exist_ok=True,
+            )
+
+        # Write content to file
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
+
+        if enable_logging:
+            print(f"Markdown output saved to: {output_path}")
+
+        # Open file if requested
+        if open_file:
+            open_file_with_default_viewer(output_path)
+    else:
+        # Original clipboard behavior
+        try:
+            process = subprocess.Popen(
+                ["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE, text=True
+            )
+            process.communicate(input=md_content)
+            if process.returncode == 0:
+                if enable_logging:
+                    print("Markdown output copied to clipboard.")
+            else:
+                print("Failed to copy to clipboard.")
+        except FileNotFoundError:
+            print("xclip not found. Install it with: sudo apt install xclip")
+
+
+def main(pattern, enable_logging=True, output_file=None, open_file=False):
     # Load gitignore patterns
     gitignore_patterns = load_gitignore_patterns()
 
@@ -81,7 +145,8 @@ def main(pattern, enable_logging=True):
     if gitignore_patterns:
         try:
             import pathspec
-            spec = pathspec.PathSpec.from_lines('gitwildmatch', gitignore_patterns)
+
+            spec = pathspec.PathSpec.from_lines("gitwildmatch", gitignore_patterns)
             filtered_files = []
             for f in files:
                 if spec.match_file(f):
@@ -91,7 +156,9 @@ def main(pattern, enable_logging=True):
                     filtered_files.append(f)
             files = filtered_files
         except ImportError:
-            print("Warning: pathspec module not found. Install with: pip install pathspec")
+            print(
+                "Warning: pathspec module not found. Install with: pip install pathspec"
+            )
             print("Skipping .gitignore filtering.")
 
     files.sort()
@@ -103,35 +170,47 @@ def main(pattern, enable_logging=True):
     for file_path in files:
         rel_path = os.path.relpath(file_path)
         header_level = rel_path.count(os.sep) + 1
-        header_mark = '#' * header_level
+        header_mark = "#" * header_level
         md_lines.append(f"{header_mark} {rel_path}\n")
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, "r") as f:
                 content = f.read()
             md_lines.append(f"```\n{content}\n```\n")
         except Exception as e:
             md_lines.append(f"```\nError reading file: {e}\n```\n")
 
-    md_content = '\n'.join(md_lines)
+    md_content = "\n".join(md_lines)
 
-    try:
-        process = subprocess.Popen(['xclip', '-selection', 'clipboard'],
-                                   stdin=subprocess.PIPE,
-                                   text=True)
-        process.communicate(input=md_content)
-        if process.returncode == 0:
-            if enable_logging:
-                print("Markdown output copied to clipboard.")
-        else:
-            print("Failed to copy to clipboard.")
-    except FileNotFoundError:
-        print("xclip not found. Install it with: sudo apt install xclip")
+    handle_output(
+        md_content,
+        output_file=output_file,
+        open_file=open_file,
+        enable_logging=enable_logging,
+    )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Aggregate files into structured Markdown")
-    parser.add_argument('pattern', help='Glob pattern to match files')
-    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress file logging')
+    parser = argparse.ArgumentParser(
+        description="Aggregate files into structured Markdown"
+    )
+    parser.add_argument("pattern", help="Glob pattern to match files")
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress file logging"
+    )
+    parser.add_argument(
+        "-f",
+        "--file",
+        nargs="?",
+        const="",
+        help="Save output to file (temp file if no path provided)",
+    )
+    parser.add_argument(
+        "-o",
+        "--open",
+        action="store_true",
+        help="Open the output file with default viewer",
+    )
 
     args = parser.parse_args()
-    main(args.pattern, not args.quiet)
+    print(args)
+    main(args.pattern, not args.quiet, args.file, args.open)
