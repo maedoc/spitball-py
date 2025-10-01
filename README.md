@@ -42,6 +42,15 @@ spitball.py 'src/**/*'
 spitball.py '**/*.{md,txt}'
 ```
 
+Files included/excluded are logged by default
+```bash
+$ ./spitball.py './*'
++ ./README.md
++ ./spitball.py
+- ./ignored-file (gitignore)
+```
+but that can be turned off with the `-q` option. 
+
 ## Output Format
 
 The generated Markdown follows this structure:
@@ -57,7 +66,7 @@ The generated Markdown follows this structure:
 
 ## Roadmap
 
-- [ ] Log files included / excluded
+- [x] Log files included / excluded
 - [ ] Configurable size limits
 - [ ] Prioritize README files
 - [ ] Customizable header prefixes
