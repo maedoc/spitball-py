@@ -110,13 +110,16 @@ def handle_output(md_content, output_file=None, open_file=False, enable_logging=
             print("xclip not found. Install it with: sudo apt install xclip")
 
 
-def main(pattern, enable_logging=True, output_file=None, open_file=False):
+def main(patterns, enable_logging=True, output_file=None, open_file=False):
     # Load gitignore patterns
     gitignore_patterns = load_gitignore_patterns()
 
     # Get all files matching glob
-    files = glob.glob(pattern, recursive=True)
-    files = [f for f in files if os.path.isfile(f)]
+    files = []
+    for pattern in patterns:
+        fs = glob.glob(pattern, recursive=True)
+        files.extend([f for f in fs if os.path.isfile(f)])
+    files = sorted(set(files))
 
     # Track excluded files
     excluded_files = []
@@ -193,7 +196,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Aggregate files into structured Markdown"
     )
-    parser.add_argument("pattern", help="Glob pattern to match files")
+    parser.add_argument("pattern", nargs="*", default=["./*"],
+                        help="Glob pattern to match files")
     parser.add_argument(
         "-q", "--quiet", action="store_true", help="Suppress file logging"
     )
