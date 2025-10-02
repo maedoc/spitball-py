@@ -109,6 +109,61 @@ def handle_output(md_content, output_file=None, open_file=False, enable_logging=
         except FileNotFoundError:
             print("xclip not found. Install it with: sudo apt install xclip")
 
+def parse_tree_clipboard():
+    """Return list of (depth, name, is_dir) parsed from clipboard tree."""
+    try:
+        raw = subprocess.check_output(["xclip", "-o"], text=True)
+    except FileNotFoundError:
+        sys.exit("xclip not found. Install with: sudo apt install xclip")
+    lines = [ln.rstrip() for ln in raw.splitlines() if ln.strip()]
+    entries = []
+    for ln in lines:
+        # count leading tree chars (4 per level)
+        prefix_len = 0
+        for ch in ln:
+            if ch in "├──│└":
+                prefix_len += 1
+            else:
+                break
+        depth = prefix_len // 4
+        name = ln[prefix_len:].strip()
+        if not name:
+            continue
+        is_dir = "." not in name  # crude: dirs have no extension
+        entries.append((depth, name, is_dir))
+    return entries
+
+
+def create_tree_from_clipboard(dry_run=False, edit=False):
+    """Create folder/file structure from clipboard tree."""
+    entries = parse_tree_clipboard()
+    # stack to track current directory path
+    stack = []
+    created_files = []
+    for depth, name, is_dir in entries:
+        # pop stack until correct depth
+        while len(stack) > depth:
+            stack.pop()
+        if is_dir:
+            path = os.path.join(*stack, name)
+            if dry_run:
+                print("mkdir", path)
+            else:
+                os.makedirs(path, exist_ok=True)
+            stack.append(name)
+        else:
+            path = os.path.join(*stack, name)
+            if dry_run:
+                print("touch", path)
+            else:
+                Path(path).touch()
+            created_files.append(path)
+    if edit and not dry_run:
+        editor = os.environ.get("EDITOR", "vi")
+        for f in created_files:
+            subprocess.call([editor, f])
+    return created_files
+
 
 def main(patterns, enable_logging=True, output_file=None, open_file=False):
     # Load gitignore patterns
@@ -209,6 +264,14 @@ if __name__ == "__main__":
         help="Save output to file (temp file if no path provided)",
     )
     parser.add_argument(
+        "-t", "--tree", action="store_true",
+        help="Parse clipboard as tree and create folder/file structure"
+    )
+    parser.add_argument(
+        "-e", "--edit", action="store_true",
+        help="Open each created file in $EDITOR (only with --tree)"
+    )
+    parser.add_argument(
         "-o",
         "--open",
         action="store_true",
@@ -216,5 +279,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    print(args)
-    main(args.pattern, not args.quiet, args.file, args.open)
+    if args.tree:
+        create_tree_from_clipboard(dry_run=False, edit=args.edit)
+    else:
+        main(args.pattern, not args.quiet, args.file, args.open)
